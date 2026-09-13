@@ -2,15 +2,16 @@ from fastapi import FastAPI, HTTPException, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from llm.schema import TriageRequest, TriageResponse, Category, Urgency
-from pydantic import BaseModel, Field
+from llm.client import classify_task, repair_task
+from pydantic import BaseModel, Field, ValidationError
 from typing import Optional
+from dotenv import load_dotenv
+from openai import APITimeoutError
+from pathlib import Path
 import sqlite3
 import os
-from dotenv import load_dotenv
-from llm.client import classify_task, repair_task
 import json
-from pydantic import ValidationError
-from pathlib import Path
+
 
 load_dotenv()
 
@@ -23,7 +24,6 @@ app = FastAPI(
 
 
 # Convert FastAPI validation errors from 422 to 400.
-# This is required for the A17 /triage endpoint.
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request, exc):
     fields = sorted({
@@ -297,6 +297,7 @@ def delete_task(task_id: int):
 
     return
 
+
 def extract_json(content: str):
     content = content.strip()
 
@@ -332,6 +333,7 @@ def validate_model_output(content: str) -> TriageResponse:
     data = extract_json(content)
     return TriageResponse.model_validate(data)
 
+
 def quarantine_failure(
     input_text: str,
     raw_output: str,
@@ -352,11 +354,19 @@ def quarantine_failure(
         file.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
-# A17 Stage 1 endpoint.
-# No real LLM call is made yet.
 @app.post("/triage", response_model=TriageResponse)
 def triage(request: TriageRequest):
 
+    # Stage 4 kill switch.
+    if os.getenv("LLM_ENABLED", "true").lower() != "true":
+        return TriageResponse(
+            category=Category.other,
+            urgency=Urgency.normal,
+            confidence=0.0,
+            reason="LLM is disabled; using deterministic fallback."
+        )
+
+    # Stage 1 stub mode.
     if os.getenv("LLM_STUB", "0") == "1":
         return TriageResponse(
             category=Category.other,
@@ -365,8 +375,14 @@ def triage(request: TriageRequest):
             reason="Stub response; LLM is disabled."
         )
 
-    # First LLM attempt
-    content = classify_task(request.text)
+    # First LLM attempt.
+    try:
+        content = classify_task(request.text)
+    except APITimeoutError:
+        raise HTTPException(
+            status_code=504,
+            detail="LLM request timed out."
+        )
 
     try:
         return validate_model_output(content)
@@ -375,12 +391,18 @@ def triage(request: TriageRequest):
 
         first_error_message = str(first_error)
 
-        # Exactly ONE repair attempt
-        repaired_content = repair_task(
-            text=request.text,
-            broken_output=content,
-            validation_error=first_error_message,
-        )
+        # Exactly ONE repair attempt.
+        try:
+            repaired_content = repair_task(
+                text=request.text,
+                broken_output=content,
+                validation_error=first_error_message,
+            )
+        except APITimeoutError:
+            raise HTTPException(
+                status_code=504,
+                detail="LLM repair request timed out."
+            )
 
         try:
             return validate_model_output(repaired_content)
