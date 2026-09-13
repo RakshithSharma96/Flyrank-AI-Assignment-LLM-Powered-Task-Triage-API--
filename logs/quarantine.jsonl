@@ -1,0 +1,1 @@
+{"input": "Prepare my assignment", "raw_model_output": "{\n  \"category\": \"study\",\n  \"urgency\": \"normal\",\n  \"confidence\": 0.92,\n  \"reason\": \"The task is related to preparing an assignment, which is study-related work.\"\n}", "error": "category must be spaceship for Stage 3 failure test", "prompt_version": "triage-v1"}

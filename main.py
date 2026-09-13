@@ -7,8 +7,10 @@ from typing import Optional
 import sqlite3
 import os
 from dotenv import load_dotenv
-from llm.client import classify_task
+from llm.client import classify_task, repair_task
 import json
+from pydantic import ValidationError
+from pathlib import Path
 
 load_dotenv()
 
@@ -295,6 +297,60 @@ def delete_task(task_id: int):
 
     return
 
+def extract_json(content: str):
+    content = content.strip()
+
+    # Remove Markdown code fences if the model used them.
+    if content.startswith("```"):
+        lines = content.splitlines()
+
+        if lines and lines[0].strip().startswith("```"):
+            lines = lines[1:]
+
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+
+        content = "\n".join(lines).strip()
+
+    # First try the entire response.
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        pass
+
+    # If extra text surrounds the JSON, extract the JSON object.
+    start = content.find("{")
+    end = content.rfind("}")
+
+    if start == -1 or end == -1 or end <= start:
+        raise ValueError("No JSON object found in model output.")
+
+    return json.loads(content[start:end + 1])
+
+
+def validate_model_output(content: str) -> TriageResponse:
+    data = extract_json(content)
+    return TriageResponse.model_validate(data)
+
+def quarantine_failure(
+    input_text: str,
+    raw_output: str,
+    error: str,
+):
+    log_path = Path(__file__).resolve().parent / "logs" / "quarantine.jsonl"
+
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    record = {
+        "input": input_text,
+        "raw_model_output": raw_output,
+        "error": error,
+        "prompt_version": "triage-v1",
+    }
+
+    with log_path.open("a", encoding="utf-8") as file:
+        file.write(json.dumps(record, ensure_ascii=False) + "\n")
+
 
 # A17 Stage 1 endpoint.
 # No real LLM call is made yet.
@@ -309,8 +365,35 @@ def triage(request: TriageRequest):
             reason="Stub response; LLM is disabled."
         )
 
+    # First LLM attempt
     content = classify_task(request.text)
 
-    data = json.loads(content)
+    try:
+        return validate_model_output(content)
 
-    return TriageResponse.model_validate(data)
+    except (ValueError, json.JSONDecodeError, ValidationError) as first_error:
+
+        first_error_message = str(first_error)
+
+        # Exactly ONE repair attempt
+        repaired_content = repair_task(
+            text=request.text,
+            broken_output=content,
+            validation_error=first_error_message,
+        )
+
+        try:
+            return validate_model_output(repaired_content)
+
+        except (ValueError, json.JSONDecodeError, ValidationError) as second_error:
+
+            quarantine_failure(
+                input_text=request.text,
+                raw_output=repaired_content,
+                error=str(second_error),
+            )
+
+            raise HTTPException(
+                status_code=422,
+                detail="LLM output could not be validated after one repair attempt."
+            )
