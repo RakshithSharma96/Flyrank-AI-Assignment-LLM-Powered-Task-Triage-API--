@@ -49,6 +49,8 @@ Install the required packages:
 
 ```bash
 pip install fastapi uvicorn
+```
+
 ## DB Browser Screenshot
 
 ![SQLite Database](screenshots/Flyrank-ai-assignment2.png)
