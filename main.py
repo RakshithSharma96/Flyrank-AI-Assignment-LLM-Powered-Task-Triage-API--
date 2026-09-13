@@ -7,6 +7,9 @@ from typing import Optional
 import sqlite3
 import os
 from dotenv import load_dotenv
+from llm.client import classify_task
+import json
+
 load_dotenv()
 
 
@@ -306,7 +309,8 @@ def triage(request: TriageRequest):
             reason="Stub response; LLM is disabled."
         )
 
-    raise HTTPException(
-        status_code=503,
-        detail="LLM integration is not enabled yet."
-    )
+    content = classify_task(request.text)
+
+    data = json.loads(content)
+
+    return TriageResponse.model_validate(data)
