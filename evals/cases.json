@@ -1,0 +1,34 @@
+[
+  {
+    "input": "Finish the quarterly sales report for my manager by 5 PM today.",
+    "expected_category": "work"
+  },
+  {
+    "input": "Study chapters 4 and 5 for my exam tomorrow.",
+    "expected_category": "study"
+  },
+  {
+    "input": "Buy milk and vegetables on the way home.",
+    "expected_category": "personal"
+  },
+  {
+    "input": "Sort the receipts and rename the folders on my laptop.",
+    "expected_category": "admin"
+  },
+  {
+    "input": "Read a novel for an hour this weekend.",
+    "expected_category": "personal"
+  },
+  {
+    "input": "Review my lecture notes sometime this week.",
+    "expected_category": "study"
+  },
+  {
+    "input": "Update the company expense spreadsheet before Friday.",
+    "expected_category": "work"
+  },
+  {
+    "input": "Do that thing we talked about.",
+    "expected_category": "other"
+  }
+]
