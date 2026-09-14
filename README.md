@@ -144,6 +144,3 @@ Copy `.env.example` to `.env` and add the API key.
 └── README.md
 ```
 
-## Future Improvements
-
-Add more adversarial evaluation cases, stronger structured-output support, and additional provider-specific error handling.
